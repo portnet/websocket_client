@@ -82,9 +82,14 @@ interact with a websocket server. Currently, it can connect via tcp or
 ssl via the `ws` and `wss` protocols. It can also send and receive
 contiguous text or binary websocket frames.
 
+## To run example in iex (elixir)
+
+    iex> c("./examples/sample_ws_handler.erl")
+    iex> :sample_ws_handler.start_link
+
 ## To run test
 
-  rebar3 ct
+    rebar3 ct
 
 ## TODO
 
