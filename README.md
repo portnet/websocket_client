@@ -82,6 +82,10 @@ interact with a websocket server. Currently, it can connect via tcp or
 ssl via the `ws` and `wss` protocols. It can also send and receive
 contiguous text or binary websocket frames.
 
+## To run test
+
+  rebar3 ct
+
 ## TODO
 
 The client has been significantly reworked, now backed by `gen_fsm`. There may still be bugs.
