@@ -88,7 +88,7 @@ contiguous text or binary websocket frames.
     iex> :sample_ws_handler.start_link
 
     iex> c("./deps/websocket_client/examples/sample_ws_handler.ex")
-    iex> {:ok, pid} = XchSocket.start_link
+    iex> {:ok, pid} = SampleWsHandler.start_link
 ## To run test
 
     rebar3 ct
