@@ -7,6 +7,7 @@
 %-compile([export_all]).
 
 -include("websocket_req.hrl").
+-include_lib("public_key/include/OTP-PUB-KEY.hrl").
 
 -export([start_link/3]).
 -export([start_link/4]).
@@ -166,9 +167,9 @@ init([Protocol, Host, Port, Path, Handler, HandlerArgs, Opts]) ->
             {once, State} -> {true, false, State};
             {reconnect, State} -> {true, true, State}
         end,
-    SSLVerify = proplists:get_value(ssl_verify, Opts, verify_none),
+    SSLVerify = proplists:get_value(ssl_verify, Opts, verify_peer),
     SockOpts  = proplists:get_value(socket_opts, Opts, []),
-    Transport = transport(Protocol, ssl_verify(SSLVerify), SockOpts),
+    Transport = transport(Protocol, ssl_verify(SSLVerify, Host), SockOpts),
     WSReq = websocket_req:new(
                 Protocol, Host, Port, Path,
                 undefined, Transport,
@@ -200,32 +201,70 @@ transport(wss, SSLVerify, ExtraOpts) ->
        name = ssl,
        closed = ssl_closed,
        error = ssl_error,
-       opts = [
-               {mode, binary},
-               {active, true},
-               SSLVerify,
-               {packet, 0}
-               | ExtraOpts
-              ]};
+       opts = [{mode, binary}, {active, true}, {packet, 0}]
+              ++ SSLVerify 
+              ++ ExtraOpts
+              };
 transport(ws, _, ExtraOpts) ->
     #transport{
         mod = gen_tcp,
         name = tcp,
         closed = tcp_closed,
         error = tcp_error,
-        opts = [
-                {mode, binary},
-                {active, true},
-                {packet, 0}
-                | ExtraOpts
-               ]}.
+        opts = [{mode, binary}, {active, true}, {packet, 0}]
+               ++ ExtraOpts
+               }.
 
-ssl_verify(verify_none) ->
-    {verify, verify_none};
-ssl_verify(verify_peer) ->
-    {verify, verify_peer};
-ssl_verify({verify_fun, _}=Verify) ->
+%% ssl code from hackney
+ssl_verify(verify_none, _Host) ->
+    [{verify, verify_none}];
+ssl_verify(verify_peer, Host) ->
+    VerifyFun = {
+      fun ssl_verify_hostname:verify_fun/3,
+      [{check_hostname, Host}]
+    },
+    [{verify, verify_peer},
+     {depth, 99},
+     {cacerts, certifi:cacerts()},
+     {partial_chain, fun partial_chain/1},
+     {verify_fun, VerifyFun}];
+ssl_verify({verify_fun, _}=Verify, _Host) ->
     Verify.
+
+%% code from rebar3 undert BSD license
+partial_chain(Certs) ->
+  Certs1 = lists:reverse([{Cert, public_key:pkix_decode_cert(Cert, otp)} ||
+    Cert <- Certs]),
+  CACerts = certifi:cacerts(),
+  CACerts1 = [public_key:pkix_decode_cert(Cert, otp) || Cert <- CACerts],
+
+  case find(fun({_, Cert}) ->
+    check_cert(CACerts1, Cert)
+            end, Certs1) of
+    {ok, Trusted} ->
+      {trusted_ca, element(1, Trusted)};
+    _ ->
+      unknown_ca
+  end.
+
+extract_public_key_info(Cert) ->
+  ((Cert#'OTPCertificate'.tbsCertificate)#'OTPTBSCertificate'.subjectPublicKeyInfo).
+
+check_cert(CACerts, Cert) ->
+  lists:any(fun(CACert) ->
+    extract_public_key_info(CACert) == extract_public_key_info(Cert)
+            end, CACerts).
+
+-spec find(fun(), list()) -> {ok, term()} | error.
+find(Fun, [Head|Tail]) when is_function(Fun) ->
+  case Fun(Head) of
+    true ->
+      {ok, Head};
+    false ->
+      find(Fun, Tail)
+  end;
+find(_Fun, []) ->
+  error.
 
 -spec terminate(Reason :: term(), state_name(), #context{}) -> ok.
 %% TODO Use Reason!!
@@ -279,6 +318,9 @@ disconnect(Reason, #context{
             {next_state, disconnected, Context#context{buffer = <<>>, handler={Handler, HState1}}};
         {reconnect, HState1} ->
             ok = gen_fsm:send_event(self(), connect),
+            {next_state, disconnected, Context#context{handler={Handler, HState1}}};
+        {reconnect, Interval, HState1} ->
+            gen_fsm:send_event_after(Interval, connect),
             {next_state, disconnected, Context#context{handler={Handler, HState1}}};
         {close, Reason1, HState1} ->
             ok = websocket_close(WSReq0, Handler, HState1, Reason1),

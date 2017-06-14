@@ -82,6 +82,17 @@ interact with a websocket server. Currently, it can connect via tcp or
 ssl via the `ws` and `wss` protocols. It can also send and receive
 contiguous text or binary websocket frames.
 
+## To run example in iex (elixir)
+
+    iex> c("./examples/sample_ws_handler.erl")
+    iex> :sample_ws_handler.start_link
+
+    iex> c("./deps/websocket_client/examples/sample_ws_handler.ex")
+    iex> {:ok, pid} = SampleWsHandler.start_link
+## To run test
+
+    rebar3 ct
+
 ## TODO
 
 The client has been significantly reworked, now backed by `gen_fsm`. There may still be bugs.
